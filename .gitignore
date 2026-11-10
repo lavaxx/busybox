@@ -68,3 +68,6 @@ TAGS
 # user-supplied scripts
 #
 /embed
+
+# Local zig packaging output
+/release-artifacts/
