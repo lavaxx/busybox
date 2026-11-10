@@ -1,0 +1,121 @@
+name: Release (zig build)
+
+# Builds static BusyBox with `zig build` and publishes cross-compiled binaries.
+# Triggered by tags like `zig/v1.39.0` (use `-alpha`/`-beta` suffixes for pre-releases).
+#
+# Runs on the org self-hosted runner (barrymini). Prefers a preinstalled Zig
+# at /opt/toolchains/zig to avoid downloading setup-zig via slow codeload.
+on:
+  push:
+    tags:
+      - "zig/v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. v1.39.0); release publish only on tags"
+        required: false
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build all targets
+    runs-on: [self-hosted, barrymini]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use preinstalled Zig
+        shell: bash
+        run: |
+          set -euo pipefail
+          for c in /opt/toolchains/zig/zig "$HOME/.local/zig/zig" "$(command -v zig || true)"; do
+            if [[ -n "$c" && -x "$c" ]]; then
+              echo "Using zig: $c ($("$c" version))"
+              echo "$(dirname "$c")" >> "$GITHUB_PATH"
+              exit 0
+            fi
+          done
+          echo "Zig 0.17.0 not found. Install to /opt/toolchains/zig." >&2
+          exit 1
+
+      - name: Parse version and channel
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/zig/* ]]; then
+            version="${GITHUB_REF#refs/tags/zig/}"
+          else
+            version="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [[ "$version" =~ -alpha ]]; then
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
+          elif [[ "$version" =~ -beta ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=prod" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Linux targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="${{ steps.version.outputs.channel }}"
+          version="${{ steps.version.outputs.version }}"
+          if [[ "$channel" == "prod" ]]; then optimize="ReleaseSmall"; else optimize="ReleaseSafe"; fi
+          mkdir -p release-artifacts
+          targets=(
+            "x86_64-linux-musl:linux_amd64"
+            "aarch64-linux-musl:linux_arm64"
+            "arm-linux-musleabihf:linux_armv7"
+          )
+          for entry in "${targets[@]}"; do
+            target="${entry%%:*}"
+            label="${entry##*:}"
+            echo "::group::Build ${label} (${target})"
+            rm -rf zig-out .zig-cache
+            rm -f busybox
+            zig build -Doptimize="${optimize}" -Dtarget="${target}"
+            archive="busybox_${version}_${label}.tar.gz"
+            tar -czf "release-artifacts/${archive}" -C zig-out/bin busybox
+            echo "::endgroup::"
+          done
+          ls -la release-artifacts
+          (cd release-artifacts && sha256sum *.tar.gz > checksums.txt && cat checksums.txt)
+
+      - name: Publish GitHub Release
+        if: >-
+          startsWith(github.ref, 'refs/tags/zig/') ||
+          (github.event_name == 'workflow_dispatch' && inputs.version != 'v0.0.0-dev')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASER_TOKEN || secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          if [[ "${GITHUB_REF}" == refs/tags/zig/* ]]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="zig/${version}"
+          fi
+          prerelease=()
+          if [[ "${{ steps.version.outputs.channel }}" != "prod" ]]; then
+            prerelease=(--prerelease)
+          fi
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$tag" release-artifacts/* \
+              --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "$tag" \
+              --repo "${{ github.repository }}" \
+              --title "busybox ${version}" \
+              --generate-notes \
+              --target "${{ github.sha }}" \
+              "${prerelease[@]}" \
+              release-artifacts/*
+          fi
