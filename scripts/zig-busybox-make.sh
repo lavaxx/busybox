@@ -46,6 +46,8 @@ for f in "${EXTRA_CFLAGS[@]}"; do
 done
 
 export SKIP_STRIP=y
+# Drop previous-arch objects before cross builds.
+make HOSTCC="$ZIG cc" clean >/dev/null
 make -j"$JOBS" \
   HOSTCC="$ZIG cc" \
   CC="$CC_STR" \
