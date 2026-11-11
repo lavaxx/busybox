@@ -21,7 +21,8 @@ TLS/`wget` HTTPS. Override with `-Ddefconfig=`.
 
 All release channels (including `-alpha` / `-beta`) build with
 `-Doptimize=small` and strip the ELF. The GitHub workflow builds the three
-musl targets **in parallel** (matrix jobs). Push a tag `zig/v1.39.0` or run
-the **Release (zig build)** workflow on `ubuntu-latest` (Zig 0.17 via
+musl targets **in parallel** (matrix jobs) and caches **ccache** per
+architecture across runs. Push a tag `zig/v1.39.0` or run the
+**Release (zig build)** workflow on `ubuntu-latest` (Zig 0.17 via
 `mlugg/setup-zig`). Artifacts:
 `busybox_<ver>_linux_{amd64,arm64,armv7}.tar.gz`.

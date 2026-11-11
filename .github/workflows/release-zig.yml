@@ -41,6 +41,13 @@ jobs:
         with:
           version: 0.17.0
 
+      # Make + zig cc compiles hundreds of C TUs; persist ccache per target.
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: busybox-${{ matrix.label }}-zig0.17-small
+          max-size: 2G
+
       - name: Parse version
         id: version
         shell: bash
@@ -54,6 +61,8 @@ jobs:
 
       - name: Build ${{ matrix.label }}
         shell: bash
+        env:
+          USE_CCACHE: "1"
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
