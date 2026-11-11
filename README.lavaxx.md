@@ -13,9 +13,10 @@ Zig 0.17 CLI values: `Debug` / `safe` / `fast` / `small` (same as dropbear).
 
 Other release triples: `aarch64-linux-musl`, `arm-linux-musleabihf`.
 
-Defconfig: `configs/lavaxx_defconfig` — applet set aligned with a typical
-camera/appliance BusyBox (ash+hush, networking, modules, …); **no** BusyBox
-TLS/`wget` HTTPS. Override with `-Ddefconfig=`.
+Defconfig: `configs/lavaxx_defconfig` — NVR/camera `--list` allowlist with
+lean `FEATURE_*` (ash only, no hush), stripped musl ELF **≤800KB** on the
+three release arches; **`wget`** kept without TLS/HTTPS. Override with
+`-Ddefconfig=`.
 
 ## Release
 
