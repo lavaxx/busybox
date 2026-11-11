@@ -23,6 +23,17 @@
 int FAST_FUNC check_got_signal_and_poll(struct pollfd pfd[1], int timeout)
 {
 	int n;
+#ifdef __APPLE__
+	/* Darwin has no ppoll(); approximate with poll(). */
+	if (bb_got_signal) {
+		errno = EINTR;
+		return -1;
+	}
+	n = poll(pfd, 1, timeout);
+	if (n < 0 && errno == EINTR)
+		return -1;
+	return n;
+#else
 	struct timespec tv;
 	sigset_t orig_mask;
 
@@ -45,4 +56,5 @@ int FAST_FUNC check_got_signal_and_poll(struct pollfd pfd[1], int timeout)
 	n = ppoll(pfd, 1, timeout >= 0 ? &tv : NULL, &orig_mask);
 	sigprocmask2(SIG_SETMASK, &orig_mask);
 	return n;
+#endif
 }

@@ -172,8 +172,14 @@
 #include <limits.h>
 #if defined(__digital__) && defined(__unix__)
 # include <sex.h>
-#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) \
-   || defined(__APPLE__)
+#elif defined(__APPLE__)
+# include <sys/resource.h>  /* rlimit */
+# include <machine/endian.h>
+/* Zig/clang Darwin headers may lack __bswap*; use builtins. */
+# define bswap_64 __builtin_bswap64
+# define bswap_32 __builtin_bswap32
+# define bswap_16 __builtin_bswap16
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 # include <sys/resource.h>  /* rlimit */
 # include <machine/endian.h>
 # define bswap_64 __bswap64
@@ -517,6 +523,8 @@ typedef unsigned smalluint;
 
 #if defined(__APPLE__)
 # undef HAVE_STRCHRNUL
+# undef HAVE_MEMPCPY
+# undef HAVE_SENDFILE
 #endif
 
 #if defined(__FreeBSD__)
