@@ -1,0 +1,85 @@
+name: Cache BusyBox objects
+
+# Populate .build/<arch> caches on master so release tags can restore them.
+# Tag-scoped caches are not visible across tags; default-branch caches are.
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "configs/lavaxx_defconfig"
+      - "scripts/zig-busybox-make.sh"
+      - "build.zig"
+      - ".github/workflows/cache-busybox.yml"
+      - ".github/workflows/release-zig.yml"
+      - "include/**"
+      - "libbb/**"
+      - "applets/**"
+      - "coreutils/**"
+      - "networking/**"
+      - "shell/**"
+      - "util-linux/**"
+      - "miscutils/**"
+      - "archival/**"
+      - "editors/**"
+      - "findutils/**"
+      - "loginutils/**"
+      - "procps/**"
+      - "modutils/**"
+      - "sysklogd/**"
+      - "debianutils/**"
+      - "console-tools/**"
+      - "e2fsprogs/**"
+      - "runit/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Warm ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux-musl
+            label: linux_amd64
+          - target: aarch64-linux-musl
+            label: linux_arm64
+          - target: arm-linux-musleabihf
+            label: linux_armv7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig 0.17.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Cache BusyBox O= tree
+        uses: actions/cache@v4
+        with:
+          path: .build/${{ matrix.label }}
+          key: bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-${{ github.sha }}
+          restore-keys: |
+            bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
+            bb-o-${{ matrix.label }}-
+
+      - name: Freshen cached objects
+        shell: bash
+        run: |
+          if [[ -d ".build/${{ matrix.label }}" ]]; then
+            find ".build/${{ matrix.label }}" -type f -exec touch {} +
+          fi
+
+      - name: Build ${{ matrix.label }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build -Doptimize=small -Dtarget="${{ matrix.target }}" \
+            -Dbuild-dir=".build/${{ matrix.label }}"
+          ls -la zig-out/bin/busybox
+          file zig-out/bin/busybox
