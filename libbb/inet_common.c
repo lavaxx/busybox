@@ -8,6 +8,7 @@
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 #include "libbb.h"
+#include <arpa/inet.h>
 #include "inet_common.h"
 
 #if 0

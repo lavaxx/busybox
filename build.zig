@@ -8,11 +8,16 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const defconfig = b.option(
+    const defconfig_opt = b.option(
         []const u8,
         "defconfig",
         "Path to BusyBox defconfig",
-    ) orelse "configs/lavaxx_defconfig";
+    );
+    const os_tag = target.result.os.tag;
+    const defconfig = defconfig_opt orelse if (os_tag == .macos or os_tag == .ios)
+        "configs/lavaxx_macos_defconfig"
+    else
+        "configs/lavaxx_defconfig";
 
     // Prefer a compact triple for `zig cc -target` (no OS version range).
     const triple = std.fmt.allocPrint(
@@ -20,7 +25,7 @@ pub fn build(b: *std.Build) void {
         "{s}-{s}-{s}",
         .{
             @tagName(target.result.cpu.arch),
-            @tagName(target.result.os.tag),
+            @tagName(os_tag),
             @tagName(target.result.abi),
         },
     ) catch @panic("OOM");

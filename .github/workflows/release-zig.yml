@@ -55,9 +55,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          channel="${{ steps.version.outputs.channel }}"
           version="${{ steps.version.outputs.version }}"
-          if [[ "$channel" == "prod" ]]; then optimize="ReleaseSmall"; else optimize="ReleaseSafe"; fi
+          # Zig 0.17 CLI enum is "small" (not "ReleaseSmall"). Always size-optimize.
+          optimize="small"
           zig version
           mkdir -p release-artifacts
           targets=(
@@ -72,6 +72,8 @@ jobs:
             rm -rf zig-out .zig-cache
             rm -f busybox
             zig build -Doptimize="${optimize}" -Dtarget="${target}"
+            ls -la zig-out/bin/busybox
+            file zig-out/bin/busybox
             archive="busybox_${version}_${label}.tar.gz"
             tar -czf "release-artifacts/${archive}" -C zig-out/bin busybox
             echo "::endgroup::"
