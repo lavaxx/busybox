@@ -13,6 +13,16 @@ pub fn build(b: *std.Build) void {
         "defconfig",
         "Path to BusyBox defconfig",
     );
+    const build_dir = b.option(
+        []const u8,
+        "build-dir",
+        "BusyBox out-of-tree build dir (make O=); enables incremental CI caches",
+    ) orelse "";
+    const force_defconfig = b.option(
+        bool,
+        "force-defconfig",
+        "Always reinstall defconfig before make",
+    ) orelse (build_dir.len == 0);
     const os_tag = target.result.os.tag;
     const defconfig = defconfig_opt orelse if (os_tag == .macos or os_tag == .ios)
         "configs/lavaxx_macos_defconfig"
@@ -42,7 +52,12 @@ pub fn build(b: *std.Build) void {
         triple,
     });
     make_step.setEnvironmentVariable("DEFCONFIG", defconfig);
-    make_step.setEnvironmentVariable("FORCE_DEFCONFIG", "1");
+    if (force_defconfig) {
+        make_step.setEnvironmentVariable("FORCE_DEFCONFIG", "1");
+    }
+    if (build_dir.len > 0) {
+        make_step.setEnvironmentVariable("BUILD_DIR", build_dir);
+    }
     for (cflags) |f| make_step.addArg(f);
     // Rebuild when the helper or defconfig changes.
     make_step.addFileInput(b.path("scripts/zig-busybox-make.sh"));

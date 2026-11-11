@@ -41,12 +41,15 @@ jobs:
         with:
           version: 0.17.0
 
-      # Make + zig cc compiles hundreds of C TUs; persist ccache per target.
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
+      # Persist out-of-tree objects per arch. ccache cannot cache `zig cc` (uncacheable).
+      - name: Cache BusyBox O= tree
+        uses: actions/cache@v4
         with:
-          key: busybox-${{ matrix.label }}-zig0.17-small
-          max-size: 2G
+          path: .build/${{ matrix.label }}
+          key: bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-${{ github.sha }}
+          restore-keys: |
+            bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
+            bb-o-${{ matrix.label }}-
 
       - name: Parse version
         id: version
@@ -61,8 +64,6 @@ jobs:
 
       - name: Build ${{ matrix.label }}
         shell: bash
-        env:
-          USE_CCACHE: "1"
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
@@ -70,7 +71,7 @@ jobs:
           label="${{ matrix.label }}"
           zig version
           # Zig 0.17 CLI enum is "small" (not "ReleaseSmall").
-          zig build -Doptimize=small -Dtarget="${target}"
+          zig build -Doptimize=small -Dtarget="${target}" -Dbuild-dir=".build/${label}"
           ls -la zig-out/bin/busybox
           file zig-out/bin/busybox
           mkdir -p release-artifacts
