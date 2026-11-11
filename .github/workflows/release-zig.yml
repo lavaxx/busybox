@@ -3,8 +3,7 @@ name: Release (zig build)
 # Builds static BusyBox with `zig build` and publishes cross-compiled binaries.
 # Triggered by tags like `zig/v1.39.0` (use `-alpha`/`-beta` suffixes for pre-releases).
 #
-# Runs on the org self-hosted runner (barrymini). Prefers a preinstalled Zig
-# at /opt/toolchains/zig to avoid downloading setup-zig via slow codeload.
+# Uses GitHub-hosted runners (lavaxx has no barrymini self-hosted runner).
 on:
   push:
     tags:
@@ -22,26 +21,17 @@ permissions:
 jobs:
   build-and-release:
     name: Build all targets
-    runs-on: [self-hosted, barrymini]
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Use preinstalled Zig
-        shell: bash
-        run: |
-          set -euo pipefail
-          for c in /opt/toolchains/zig/zig "$HOME/.local/zig/zig" "$(command -v zig || true)"; do
-            if [[ -n "$c" && -x "$c" ]]; then
-              echo "Using zig: $c ($("$c" version))"
-              echo "$(dirname "$c")" >> "$GITHUB_PATH"
-              exit 0
-            fi
-          done
-          echo "Zig 0.17.0 not found. Install to /opt/toolchains/zig." >&2
-          exit 1
+      - name: Install Zig 0.17.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
 
       - name: Parse version and channel
         id: version
@@ -68,6 +58,7 @@ jobs:
           channel="${{ steps.version.outputs.channel }}"
           version="${{ steps.version.outputs.version }}"
           if [[ "$channel" == "prod" ]]; then optimize="ReleaseSmall"; else optimize="ReleaseSafe"; fi
+          zig version
           mkdir -p release-artifacts
           targets=(
             "x86_64-linux-musl:linux_amd64"

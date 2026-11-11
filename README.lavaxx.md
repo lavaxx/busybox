@@ -16,5 +16,6 @@ Defconfig: `configs/lavaxx_defconfig` (override with `-Ddefconfig=`).
 ## Release
 
 Push a tag `zig/v1.39.0` (use `-alpha` / `-beta` for pre-releases) or run the
-**Release (zig build)** workflow. Artifacts:
+**Release (zig build)** workflow on `ubuntu-latest` (Zig 0.17 via
+`mlugg/setup-zig`). Artifacts:
 `busybox_<ver>_linux_{amd64,arm64,armv7}.tar.gz`.
