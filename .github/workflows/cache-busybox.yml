@@ -60,21 +60,32 @@ jobs:
           version: 0.17.0
 
       - name: Cache BusyBox O= tree
+        id: objcache
         uses: actions/cache@v4
         with:
           path: .build/${{ matrix.label }}
           key: bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-${{ github.sha }}
-          restore-keys: |
-            bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
-            bb-o-${{ matrix.label }}-
 
       - name: Build ${{ matrix.label }}
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Doptimize=small -Dtarget="${{ matrix.target }}" \
-            -Dbuild-dir=".build/${{ matrix.label }}"
-          # Ensure O= copy is the stripped artifact release jobs reuse.
-          cp -f zig-out/bin/busybox ".build/${{ matrix.label }}/busybox"
-          ls -la zig-out/bin/busybox ".build/${{ matrix.label }}/busybox"
+          label="${{ matrix.label }}"
+          if [[ "${{ steps.objcache.outputs.cache-hit }}" == "true" && -x ".build/${label}/busybox" ]]; then
+            echo "Cache already warm for ${label}"
+            mkdir -p zig-out/bin
+            cp -f ".build/${label}/busybox" zig-out/bin/busybox
+          else
+            rm -rf ".build/${label}"
+            zig build -Doptimize=small -Dtarget="${{ matrix.target }}" \
+              -Dbuild-dir=".build/${label}" -Dforce-defconfig=true
+            cp -f zig-out/bin/busybox ".build/${label}/busybox"
+          fi
+          ls -la zig-out/bin/busybox ".build/${label}/busybox"
           file zig-out/bin/busybox
+          sz=$(stat -c%s zig-out/bin/busybox)
+          echo "stripped size=${sz} bytes"
+          if (( sz > 800 * 1024 )); then
+            echo "::error::busybox ${label} is ${sz} bytes (>800KiB)"
+            exit 1
+          fi
