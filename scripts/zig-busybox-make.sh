@@ -62,22 +62,42 @@ fi
 EXTRA_CFLAGS=("$@")
 # BusyBox Make expects CC as one shell word-split string.
 if [[ "$IS_MACOS" == "1" ]]; then
-  CC_STR="$ZIG cc -target $TARGET"
+  CC_BASE=("$ZIG" cc -target "$TARGET")
   # Keep Darwin macros out of the assembler command line (CC is also used for .S).
   MAKE_EXTRA_CFLAGS=(-D_DARWIN_C_SOURCE)
 else
-  CC_STR="$ZIG cc -target $TARGET -static"
+  CC_BASE=("$ZIG" cc -target "$TARGET" -static)
   MAKE_EXTRA_CFLAGS=()
 fi
-for f in "${EXTRA_CFLAGS[@]}"; do
-  CC_STR+=" $f"
-done
+CC_BASE+=("${EXTRA_CFLAGS[@]}")
+# CI: USE_CCACHE=1 — wrap via a single-binary shim (ccache does not love `zig cc`).
+if [[ "${USE_CCACHE:-0}" == "1" ]] && command -v ccache >/dev/null 2>&1; then
+  ZIG_BIN="$(command -v "$ZIG" 2>/dev/null || true)"
+  [[ -n "$ZIG_BIN" ]] || ZIG_BIN="$ZIG"
+  WRAPPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zig-cc-wrap.XXXXXX")"
+  cat >"$WRAPPER_DIR/zig-cc" <<EOF
+#!/bin/sh
+exec "$ZIG_BIN" cc "\$@"
+EOF
+  chmod +x "$WRAPPER_DIR/zig-cc"
+  CC_STR="ccache $WRAPPER_DIR/zig-cc"
+  # Re-apply target/static/optimize flags after the wrapper.
+  for arg in "${CC_BASE[@]:2}"; do
+    CC_STR+=" $arg"
+  done
+  ccache -z >/dev/null 2>&1 || true
+else
+  CC_STR="${CC_BASE[*]}"
+fi
 
 export SKIP_STRIP=y
 # Drop previous target objects, but keep host kconfig tools under scripts/.
-find . \( -name '*.o' -o -name '*.a' -o -name 'busybox' -o -name 'busybox_unstripped' \) \
-  ! -path './scripts/*' ! -path './.git/*' ! -path './.zig-cache/*' ! -path './zig-out/*' \
-  -delete 2>/dev/null || true
+# KEEP_OBJS=1 skips the wipe (local incremental / restored object caches).
+if [[ "${KEEP_OBJS:-0}" != "1" ]]; then
+  find . \( -name '*.o' -o -name '*.a' -o -name 'busybox' -o -name 'busybox_unstripped' \) \
+    ! -path './scripts/*' ! -path './.git/*' ! -path './.zig-cache/*' ! -path './zig-out/*' \
+    -delete 2>/dev/null || true
+fi
 rm -f busybox busybox_unstripped
 make -j"$JOBS" \
   HOSTCC="$HOSTCC_BIN" \
@@ -86,6 +106,12 @@ make -j"$JOBS" \
   RANLIB="$ZIG ranlib" \
   EXTRA_CFLAGS="${MAKE_EXTRA_CFLAGS[*]}" \
   busybox
+
+if [[ "${USE_CCACHE:-0}" == "1" ]] && command -v ccache >/dev/null 2>&1; then
+  echo "::group::ccache stats"
+  ccache -s || true
+  echo "::endgroup::"
+fi
 
 # Strip debug symbols from the final ELF (SKIP_STRIP leaves them otherwise).
 if "$ZIG" objcopy --strip-all busybox busybox.stripped 2>/dev/null; then
