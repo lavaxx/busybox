@@ -127,3 +127,7 @@ elif command -v llvm-strip >/dev/null 2>&1; then
 elif command -v strip >/dev/null 2>&1; then
   strip busybox 2>/dev/null || true
 fi
+# Keep the O= tree copy stripped too so CI can reuse the cached binary.
+if [[ "$BB_BIN" != "busybox" ]]; then
+  cp -f busybox "$BB_BIN"
+fi

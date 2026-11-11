@@ -68,18 +68,13 @@ jobs:
             bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
             bb-o-${{ matrix.label }}-
 
-      - name: Freshen cached objects
-        shell: bash
-        run: |
-          if [[ -d ".build/${{ matrix.label }}" ]]; then
-            find ".build/${{ matrix.label }}" -type f -exec touch {} +
-          fi
-
       - name: Build ${{ matrix.label }}
         shell: bash
         run: |
           set -euo pipefail
           zig build -Doptimize=small -Dtarget="${{ matrix.target }}" \
             -Dbuild-dir=".build/${{ matrix.label }}"
-          ls -la zig-out/bin/busybox
+          # Ensure O= copy is the stripped artifact release jobs reuse.
+          cp -f zig-out/bin/busybox ".build/${{ matrix.label }}/busybox"
+          ls -la zig-out/bin/busybox ".build/${{ matrix.label }}/busybox"
           file zig-out/bin/busybox
