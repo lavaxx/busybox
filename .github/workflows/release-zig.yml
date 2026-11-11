@@ -3,7 +3,7 @@ name: Release (zig build)
 # Builds static BusyBox with `zig build` and publishes cross-compiled binaries.
 # Triggered by tags like `zig/v1.39.0` (use `-alpha`/`-beta` suffixes for pre-releases).
 #
-# Uses GitHub-hosted runners (lavaxx has no barrymini self-hosted runner).
+# Uses GitHub-hosted runners. Targets build in parallel (matrix) to cut wall time.
 on:
   push:
     tags:
@@ -19,21 +19,29 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build all targets
+  build:
+    name: Build ${{ matrix.label }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux-musl
+            label: linux_amd64
+          - target: aarch64-linux-musl
+            label: linux_arm64
+          - target: arm-linux-musleabihf
+            label: linux_armv7
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Install Zig 0.17.0
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
 
-      - name: Parse version and channel
+      - name: Parse version
         id: version
         shell: bash
         run: |
@@ -43,63 +51,89 @@ jobs:
             version="${{ github.event.inputs.version }}"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          if [[ "$version" =~ -alpha ]]; then
-            echo "channel=dev" >> "$GITHUB_OUTPUT"
-          elif [[ "$version" =~ -beta ]]; then
-            echo "channel=beta" >> "$GITHUB_OUTPUT"
-          else
-            echo "channel=prod" >> "$GITHUB_OUTPUT"
-          fi
 
-      - name: Build Linux targets
+      - name: Build ${{ matrix.label }}
         shell: bash
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
-          # Zig 0.17 CLI enum is "small" (not "ReleaseSmall"). Always size-optimize.
-          optimize="small"
+          target="${{ matrix.target }}"
+          label="${{ matrix.label }}"
           zig version
+          # Zig 0.17 CLI enum is "small" (not "ReleaseSmall").
+          zig build -Doptimize=small -Dtarget="${target}"
+          ls -la zig-out/bin/busybox
+          file zig-out/bin/busybox
           mkdir -p release-artifacts
-          targets=(
-            "x86_64-linux-musl:linux_amd64"
-            "aarch64-linux-musl:linux_arm64"
-            "arm-linux-musleabihf:linux_armv7"
-          )
-          for entry in "${targets[@]}"; do
-            target="${entry%%:*}"
-            label="${entry##*:}"
-            echo "::group::Build ${label} (${target})"
-            rm -rf zig-out .zig-cache
-            rm -f busybox
-            zig build -Doptimize="${optimize}" -Dtarget="${target}"
-            ls -la zig-out/bin/busybox
-            file zig-out/bin/busybox
-            archive="busybox_${version}_${label}.tar.gz"
-            tar -czf "release-artifacts/${archive}" -C zig-out/bin busybox
-            echo "::endgroup::"
-          done
+          archive="busybox_${version}_${label}.tar.gz"
+          tar -czf "release-artifacts/${archive}" -C zig-out/bin busybox
+          (cd release-artifacts && sha256sum "${archive}" > "${archive}.sha256")
           ls -la release-artifacts
-          (cd release-artifacts && sha256sum *.tar.gz > checksums.txt && cat checksums.txt)
 
-      - name: Publish GitHub Release
-        if: >-
-          startsWith(github.ref, 'refs/tags/zig/') ||
-          (github.event_name == 'workflow_dispatch' && inputs.version != 'v0.0.0-dev')
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: busybox-${{ matrix.label }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: >-
+      startsWith(github.ref, 'refs/tags/zig/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.version != 'v0.0.0-dev')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/zig/* ]]; then
+            version="${GITHUB_REF#refs/tags/zig/}"
+            tag="${{ github.ref_name }}"
+          else
+            version="${{ github.event.inputs.version }}"
+            tag="zig/${version}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if [[ "$version" =~ -alpha|-beta ]]; then
+            echo "prerelease=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Prepare checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          ls -la
+          # Prefer per-archive sha files if present; always rewrite checksums.txt
+          sha256sum busybox_*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.RELEASER_TOKEN || secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
-          if [[ "${GITHUB_REF}" == refs/tags/zig/* ]]; then
-            tag="${{ github.ref_name }}"
-          else
-            tag="zig/${version}"
-          fi
+          tag="${{ steps.version.outputs.tag }}"
           prerelease=()
-          if [[ "${{ steps.version.outputs.channel }}" != "prod" ]]; then
+          if [[ "${{ steps.version.outputs.prerelease }}" == "1" ]]; then
             prerelease=(--prerelease)
           fi
+          # Drop per-archive .sha256 helpers; publish tarballs + checksums.txt
+          rm -f release-artifacts/*.sha256
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$tag" release-artifacts/* \
               --repo "${{ github.repository }}" --clobber
