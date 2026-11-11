@@ -41,7 +41,8 @@ jobs:
         with:
           version: 0.17.0
 
-      # Persist out-of-tree objects per arch. ccache cannot cache `zig cc` (uncacheable).
+      # Restore O= objects saved on master (tag caches are not shared across tags).
+      # ccache cannot cache `zig cc` (nearly all calls uncacheable).
       - name: Cache BusyBox O= tree
         uses: actions/cache@v4
         with:
@@ -50,6 +51,17 @@ jobs:
           restore-keys: |
             bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
             bb-o-${{ matrix.label }}-
+
+      # Checkout refreshes source mtimes; make objects look newer so Make skips TUs.
+      - name: Freshen cached objects
+        shell: bash
+        run: |
+          if [[ -d ".build/${{ matrix.label }}" ]]; then
+            find ".build/${{ matrix.label }}" -type f -exec touch {} +
+            echo "Freshened $(find ".build/${{ matrix.label }}" -type f | wc -l) files under .build/${{ matrix.label }}"
+          else
+            echo "No cached object tree yet (cold build)"
+          fi
 
       - name: Parse version
         id: version
