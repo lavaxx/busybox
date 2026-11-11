@@ -1,0 +1,18 @@
+.{
+    .name = .busybox,
+    .version = "1.39.0",
+    .fingerprint = 0x8507fae1ee833d9d,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "configs",
+        "scripts",
+        "patches",
+        "applets",
+        "libbb",
+        "include",
+        "Makefile",
+    },
+}

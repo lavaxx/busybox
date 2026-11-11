@@ -13,6 +13,13 @@ Config.in
 # Never ignore these
 #
 !.gitignore
+!.github
+!.github/**
+
+#
+# Zig build
+#
+/zig-out/
 
 #
 # Normal output
@@ -61,3 +68,6 @@ TAGS
 # user-supplied scripts
 #
 /embed
+
+# Local zig packaging output
+/release-artifacts/
