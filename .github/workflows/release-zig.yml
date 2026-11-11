@@ -41,17 +41,14 @@ jobs:
         with:
           version: 0.17.0
 
-      # Restore O= tree saved on master (tag caches are not shared across tags).
-      # Make still full-rebuilds after checkout (cmd/deps); exact hit → reuse binary.
+      # Exact-key only (no broad restore-keys). A prefix hit can revive an older
+      # defconfig's .config/binary and get re-saved under the new key.
       - name: Cache BusyBox O= tree
         id: objcache
         uses: actions/cache@v4
         with:
           path: .build/${{ matrix.label }}
           key: bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-${{ github.sha }}
-          restore-keys: |
-            bb-o-${{ matrix.label }}-${{ hashFiles('configs/lavaxx_defconfig', 'scripts/zig-busybox-make.sh', 'build.zig') }}-
-            bb-o-${{ matrix.label }}-
 
       - name: Parse version
         id: version
@@ -79,11 +76,20 @@ jobs:
             echo "Reusing cached busybox from ${cached}"
             cp -f "${cached}" zig-out/bin/busybox
           else
+            rm -rf ".build/${label}"
             # Zig 0.17 CLI enum is "small" (not "ReleaseSmall").
-            zig build -Doptimize=small -Dtarget="${target}" -Dbuild-dir=".build/${label}"
+            zig build -Doptimize=small -Dtarget="${target}" -Dbuild-dir=".build/${label}" -Dforce-defconfig=true
           fi
           ls -la zig-out/bin/busybox
           file zig-out/bin/busybox
+          # Guard against shipping a stale fat binary after a config trim.
+          max_bytes=$((800 * 1024))
+          sz=$(stat -c%s zig-out/bin/busybox)
+          echo "stripped size=${sz} bytes (limit ${max_bytes})"
+          if (( sz > max_bytes )); then
+            echo "::error::busybox ${label} is ${sz} bytes (>800KiB)"
+            exit 1
+          fi
           mkdir -p release-artifacts
           archive="busybox_${version}_${label}.tar.gz"
           tar -czf "release-artifacts/${archive}" -C zig-out/bin busybox
