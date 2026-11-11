@@ -21,9 +21,10 @@ TLS/`wget` HTTPS. Override with `-Ddefconfig=`.
 
 All release channels (including `-alpha` / `-beta`) build with
 `-Doptimize=small` and strip the ELF. The GitHub workflow builds the three
-musl targets **in parallel** (matrix jobs). Object trees (`.build/<label>`)
-are warmed on `master` by **Cache BusyBox objects**, then restored on release
-tags (GHA tag caches are not shared across tags). Push a tag `zig/v1.39.0`
-or run the **Release (zig build)** workflow on `ubuntu-latest` (Zig 0.17 via
-`mlugg/setup-zig`). Artifacts:
+musl targets **in parallel** (matrix jobs). Master runs **Cache BusyBox
+objects** to store `.build/<label>` (incl. stripped `busybox`). Release tags
+restore that cache; an exact key hit reuses the binary (Make cannot
+incrementally reuse `zig cc` objects after checkout). Push a tag
+`zig/v1.39.0` or run the **Release (zig build)** workflow on `ubuntu-latest`
+(Zig 0.17 via `mlugg/setup-zig`). Artifacts:
 `busybox_<ver>_linux_{amd64,arm64,armv7}.tar.gz`.
